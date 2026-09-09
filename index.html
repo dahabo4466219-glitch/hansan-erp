@@ -649,7 +649,7 @@ table.data tbody tr:hover{background:var(--c-surface-2)}
       <div style="position:relative">
         <button class="avatar" onclick="toggleMenu('userMenu',event)">MN</button>
         <div class="menu menu-r" id="userMenu">
-          <div class="menu-head"><strong>Mohamed Naasir</strong><div class="notif-s"><span id="roleLabel">Super Admin</span> · Hargeisa Main</div></div>
+          <div class="menu-head"><strong id="notifUsername">Admin</strong><div class="notif-s"><span id="roleLabel">Super Admin</span> · Hargeisa Main</div></div>
           <button class="menu-item" onclick="notify('My Profile')">👤 <span data-i18n="my_profile">Profile-kayga</span></button>
           <button class="menu-item" onclick="notify('My Tasks')">✅ <span data-i18n="my_tasks">Shaqooyinkayga</span></button>
           <button class="menu-item" onclick="go('settings')">⚙️ <span data-i18n="security">Amniga</span></button>
@@ -734,7 +734,7 @@ table.data tbody tr:hover{background:var(--c-surface-2)}
 <div class="auth-overlay" id="authOverlay" style="display:none;position:fixed;inset:0;z-index:2000;background:var(--c-bg,#f4f5fb);align-items:center;justify-content:center;padding:20px">
   <div class="card card-pad" style="max-width:380px;width:100%">
     <div style="text-align:center;margin-bottom:16px"><div style="font-weight:800;font-size:22px;color:var(--c-primary)">HAN-SAN ERP</div><div class="page-sub">Sign in to your account</div></div>
-    <div class="form-field"><label>Email</label><input id="authEmail" type="email" placeholder="you@company.com" autocomplete="username"></div>
+    <div class="form-field"><label>Username</label><input id="authEmail" type="text" placeholder="e.g. xaaji" autocomplete="username" autocapitalize="none"></div>
     <div class="form-field" style="margin-top:10px"><label>Password</label><input id="authPass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
     <div class="field-error" id="authErr" style="margin-top:8px"></div>
     <button class="btn btn-primary btn-block" style="margin-top:16px" onclick="doLogin()">Sign in</button>
@@ -1126,6 +1126,25 @@ function pageAudit(){
   if(!log.length) html+='<tr><td colspan="6"><div class="empty" style="padding:24px"><h4>No activity yet</h4></div></td></tr>';
   return html+'</tbody></table></div>'+mob+'</div>';
 }
+function accountSettingsHtml(){
+  var uname=(DB.myEmail||"").split("@")[0]||"—";
+  return '<div class="form-field"><label>Signed in as</label><input value="'+esc(uname)+'" readonly></div>'+
+    '<div class="form-field" style="margin-top:10px"><label>New password</label><input id="pw_new" type="password" placeholder="At least 6 characters"></div>'+
+    '<div class="form-field" style="margin-top:8px"><label>Confirm new password</label><input id="pw_confirm" type="password" placeholder="Repeat new password"></div>'+
+    '<div class="field-error" id="pw_err" style="margin-top:6px"></div>'+
+    '<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="changeMyPassword()">Change password</button>';
+}
+function changeMyPassword(){
+  var p1=el("pw_new").value||"",p2=el("pw_confirm").value||"",err=el("pw_err");
+  if(p1.length<6){ err.textContent="Password must be at least 6 characters"; return; }
+  if(p1!==p2){ err.textContent="Passwords do not match"; return; }
+  if(!DB.client){ err.textContent="Not connected"; return; }
+  err.textContent="Updating…";
+  DB.client.auth.updateUser({password:p1}).then(function(res){
+    if(res.error){ err.textContent=res.error.message; return; }
+    err.textContent=""; el("pw_new").value=""; el("pw_confirm").value=""; notify("Password updated","ok");
+  }).catch(function(){ err.textContent="Failed to update password"; });
+}
 function roleSettingsHtml(){
   var p=rp(),opts="",i; for(i=0;i<ROLES.length;i++) opts+='<option'+(ROLES[i]===CURRENT_ROLE?' selected':'')+'>'+esc(ROLES[i])+'</option>';
   var caps=[]; if(p.create)caps.push("Create"); if(p.edit)caps.push("Edit"); if(p.del)caps.push("Delete"); if(p.approve)caps.push("Approve"); if(p.export)caps.push("Export"); if(p.viewSalary)caps.push("View salary");
@@ -1469,6 +1488,7 @@ function pageSettings(){
     '<div class="form-field" style="margin-top:14px"><label>Language</label><div style="display:flex;gap:10px"><button class="btn btn-secondary btn-sm" onclick="setLang(\'en\')">English</button><button class="btn btn-secondary btn-sm" onclick="setLang(\'so\')">Somali</button><button class="btn btn-secondary btn-sm" onclick="setLang(\'ar\')">العربية</button></div></div>'+currencySettingsHtml()+
     '<div class="sec-title">Role &amp; permissions</div>'+roleSettingsHtml()+
     '<div class="sec-title">Data</div><p class="page-sub">Your data is saved locally in this browser (localStorage) and persists across refreshes on your deployed site. Multi-branch, multi-user sync requires the Supabase backend.</p><button class="btn btn-secondary btn-sm" onclick="if(confirm(\'Reset all data to demo defaults?\'))resetData()">↺ Reset demo data</button>'+
+    '<div class="sec-title">Account</div>'+accountSettingsHtml()+
     '<div class="sec-title">Backend</div><p class="page-sub">Connect Supabase by swapping STATE in the render functions. Design tokens (CSS variables) are used instead of hard-coded colors.</p></div>';
   return html;
 }
@@ -2196,6 +2216,7 @@ DB.saveRemote=function(){
 DB.loadRole=function(){
   return DB.client.auth.getUser().then(function(u){
     var uid=(u&&u.data&&u.data.user)?u.data.user.id:null; if(!uid) return;
+    DB.myEmail=(u.data.user.email)||""; var nl=el("notifUsername"); if(nl) nl.textContent=(DB.myEmail.split("@")[0]||"—");
     return DB.client.from("profiles").select("role,full_name").eq("id",uid).maybeSingle().then(function(r){
       if(r&&r.data&&r.data.role){ CURRENT_ROLE=r.data.role; PERMS.viewSalary=can("viewSalary"); var rl=el("roleLabel"); if(rl) rl.textContent=CURRENT_ROLE; }
     });
@@ -2214,7 +2235,7 @@ DB.signIn=function(email,pass){
 DB.signOut=function(){ if(DB.client) DB.client.auth.signOut().then(function(){ try{ window.location.reload(); }catch(e){} }); };
 function showAuth(){ var o=el("authOverlay"); if(o) o.style.display="flex"; }
 function hideAuth(){ var o=el("authOverlay"); if(o) o.style.display="none"; }
-function doLogin(){ var e=(el("authEmail").value||"").trim(),p=el("authPass").value||""; if(!e||!p){ el("authErr").textContent="Enter email and password"; return; } el("authErr").textContent="Signing in…"; DB.signIn(e,p); }
+function doLogin(){ var u=(el("authEmail").value||"").trim(),p=el("authPass").value||""; if(!u||!p){ el("authErr").textContent="Enter username and password"; return; } var e=u.indexOf("@")>=0?u:(u.toLowerCase().replace(/\s+/g,"")+"@hansan.local"); el("authErr").textContent="Signing in…"; DB.signIn(e,p); }
 
 /* ---------- persistence (localStorage — persists on GitHub Pages/Netlify) ---------- */
 function persist(){ if(DB.on){ DB._dirty=true; if(DB.saveTimer) clearTimeout(DB.saveTimer); DB.saveTimer=setTimeout(DB.saveRemote,400); return; } try{ window.localStorage.setItem("hansan_erp_v1",JSON.stringify(STATE)); }catch(e){} }
